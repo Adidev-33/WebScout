@@ -56,6 +56,30 @@ async def run_direct_audit(target_url: str):
         print(f"  📑  Meta Title:      {metrics.metaTitle}")
         print(f"  📝  Meta Description: {metrics.metaDescription}")
         
+        # Page Title & Meta Data Analysis CLI print
+        if metrics.metaDataAnalysis:
+            analysis = metrics.metaDataAnalysis
+            print("\n🔍 PAGE TITLE & METADATA ANALYSIS:")
+            print(f"  🏷️  Title Status:     {analysis.titleStatus} ({analysis.titleLength} chars)")
+            if analysis.titleRecommendations:
+                for rec in analysis.titleRecommendations:
+                    print(f"      👉 {rec}")
+            print(f"  📝  Meta Desc Status:  {analysis.metaDescriptionStatus} ({analysis.metaDescriptionLength} chars)")
+            if analysis.metaDescriptionRecommendations:
+                for rec in analysis.metaDescriptionRecommendations:
+                    print(f"      👉 {rec}")
+            print(f"  🌐  Open Graph Tags:  {analysis.openGraphCount} found")
+            print(f"  🐦  Twitter Cards:    {analysis.twitterCardCount} found")
+
+        # Broken Links CLI print
+        print(f"\n🔗 BROKEN HYPERLINKS AUDIT:")
+        print(f"  🚨 Broken Links:     {metrics.brokenLinksCount} found")
+        if metrics.brokenLinks:
+            for idx, link in enumerate(metrics.brokenLinks):
+                code_str = f"HTTP {link.statusCode}" if link.statusCode > 0 else "Connection Error"
+                print(f"    {idx+1}. URL:  {link.url}")
+                print(f"       Code: {code_str} | Description: {link.errorDescription}")
+        
         if metrics.consoleErrorsSimulated:
             print("\n  ⚠️  Console Warnings & Layout Audits:")
             for log in metrics.consoleErrorsSimulated:
@@ -115,6 +139,32 @@ def run_http_audit(target_url: str):
             print(f"🔍 SEO: {scores.get('seo')}/10 | ⚡ Performance: {scores.get('performance')}/10 | ⚙️ Technical: {scores.get('technical')}/10")
             print("-" * 70)
             
+            # Page Title & Meta Data Analysis CLI print
+            metaDataAnalysis = metrics.get("metaDataAnalysis")
+            if metaDataAnalysis:
+                print("\n🔍 PAGE TITLE & METADATA ANALYSIS:")
+                print(f"  🏷️  Title Status:     {metaDataAnalysis.get('titleStatus')} ({metaDataAnalysis.get('titleLength')} chars)")
+                if metaDataAnalysis.get("titleRecommendations"):
+                    for rec in metaDataAnalysis.get("titleRecommendations"):
+                        print(f"      👉 {rec}")
+                print(f"  📝  Meta Desc Status:  {metaDataAnalysis.get('metaDescriptionStatus')} ({metaDataAnalysis.get('metaDescriptionLength')} chars)")
+                if metaDataAnalysis.get("metaDescriptionRecommendations"):
+                    for rec in metaDataAnalysis.get("metaDescriptionRecommendations"):
+                        print(f"      👉 {rec}")
+                print(f"  🌐  Open Graph Tags:  {metaDataAnalysis.get('openGraphCount')} found")
+                print(f"  🐦  Twitter Cards:    {metaDataAnalysis.get('twitterCardCount')} found")
+
+            # Broken Links CLI print
+            print(f"\n🔗 BROKEN HYPERLINKS AUDIT:")
+            brokenLinksCount = metrics.get("brokenLinksCount", 0)
+            print(f"  🚨 Broken Links:     {brokenLinksCount} found")
+            brokenLinks = metrics.get("brokenLinks", [])
+            if brokenLinks:
+                for idx, link in enumerate(brokenLinks):
+                    code_str = f"HTTP {link.get('statusCode')}" if link.get('statusCode', 0) > 0 else "Connection Error"
+                    print(f"    {idx+1}. URL:  {link.get('url')}")
+                    print(f"       Code: {code_str} | Description: {link.get('errorDescription')}")
+
             print("\n🧠 AI Summary Roadmap:")
             for idx, item in enumerate(summary.get("roadmap", [])):
                 print(f"  {idx+1}. {item}")

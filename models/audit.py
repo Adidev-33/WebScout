@@ -18,6 +18,21 @@ class HeadingStructure(BaseModel):
     h2Count: int = Field(default=0)
     h3Count: int = Field(default=0)
 
+class BrokenLinkDetails(BaseModel):
+    url: str = Field(..., description="The broken hyperlink destination URL")
+    statusCode: int = Field(..., description="The HTTP response code or 0 if connection error")
+    errorDescription: str = Field(..., description="The description of the error code or connection error")
+
+class MetaDataAnalysisDetails(BaseModel):
+    titleLength: int = Field(default=0, description="Length of the page title")
+    titleStatus: str = Field(default="Missing", description="Status of the title (Optimal, Too Short, Too Long, Missing)")
+    titleRecommendations: List[str] = Field(default_factory=list, description="Recommendations for the title")
+    metaDescriptionLength: int = Field(default=0, description="Length of the meta description")
+    metaDescriptionStatus: str = Field(default="Missing", description="Status of the meta description")
+    metaDescriptionRecommendations: List[str] = Field(default_factory=list, description="Recommendations for the meta description")
+    openGraphCount: int = Field(default=0, description="Number of Open Graph tags found")
+    twitterCardCount: int = Field(default=0, description="Number of Twitter Card tags found")
+
 class AuditMetrics(BaseModel):
     loadTimeMs: float = Field(..., description="Page load speed in milliseconds")
     responseCode: int = Field(..., description="HTTP status response code")
@@ -31,6 +46,9 @@ class AuditMetrics(BaseModel):
     headingStructure: HeadingStructure
     metaTitle: Optional[str] = None
     metaDescription: Optional[str] = None
+    brokenLinksCount: int = Field(default=0, description="Number of broken links found")
+    brokenLinks: List[BrokenLinkDetails] = Field(default_factory=list, description="Details of broken links")
+    metaDataAnalysis: Optional[MetaDataAnalysisDetails] = None
 
 class ExecutiveSummary(BaseModel):
     theGood: List[str] = Field(default_factory=list, description="List of positive website features")
