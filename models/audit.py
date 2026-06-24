@@ -66,3 +66,4 @@ class AuditReport(BaseModel):
     scores: Optional[AuditScores] = None
     metrics: Optional[AuditMetrics] = None
     summary: Optional[ExecutiveSummary] = None
+    screenshotPath: Optional[str] = Field(default=None, description="Relative path to the captured full-page screenshot PNG")
