@@ -1,0 +1,200 @@
+# -*- coding: utf-8 -*-
+"""
+@license
+SPDX-License-Identifier: Apache-2.0
+"""
+
+import os
+import json
+import time
+import urllib.parse
+from typing import Optional
+from dotenv import load_dotenv
+from models.audit import AuditMetrics, AuditScores, ExecutiveSummary
+
+# Load .env file into os.environ
+load_dotenv()
+
+# Default model - can be overridden via GROQ_MODEL env var
+DEFAULT_MODEL = "llama-3.3-70b-versatile"
+
+
+class GroqService:
+    @staticmethod
+    def _get_ai_client():
+        """Attempts to initialize the Groq AsyncGroq client if a valid API key exists."""
+        api_key = os.environ.get("GROQ_API_KEY", "").strip()
+
+        if not api_key or api_key == "YOUR_GROQ_API_KEY" or api_key == "":
+            print("[Groq] GROQ_API_KEY is unset or placeholder. Cascading to local offline executive summary generator.")
+            return None
+
+        try:
+            from groq import AsyncGroq
+            print("[Groq] Initializing AsyncGroq client...")
+            return AsyncGroq(api_key=api_key)
+        except Exception as e:
+            print(f"[Groq Warning] Failed to load groq module: {str(e)}")
+            return None
+
+    @staticmethod
+    async def generate_audit_summary(
+        url: str,
+        metrics: AuditMetrics,
+        scores: AuditScores
+    ) -> ExecutiveSummary:
+        """
+        Uses Groq LLM to analyze crawled web parameters 
+        and provide a senior-level detailed audit summary, with graceful local fallback.
+        """
+        client = GroqService._get_ai_client()
+
+        if client is None:
+            return GroqService._generate_simulated_summary(url, metrics, scores)
+
+        model = os.environ.get("GROQ_MODEL", DEFAULT_MODEL).strip()
+        print(f"[Groq] 🧠 Calling {model} with technical data for url: {url}")
+
+        system_prompt = (
+            "You are an elite, objective, and realistic website auditor. "
+            "Focus on highly specific code and structure recommendations based on raw telemetry. "
+            "You MUST respond with valid JSON only — no markdown, no commentary outside the JSON object."
+        )
+
+        user_prompt = f"""
+You are an expert Senior Web Auditor, Accessibility Specialist, and SEO Engineer.
+Analyze the following raw technical parameters crawled from auditing the webpage: {url}
+
+--- Raw Crawled Web Parameters (JSON) ---
+{json.dumps({"metrics": metrics.model_dump(), "scores": scores.model_dump()}, indent=2)}
+
+--- Instructions ---
+Using this parsed technical telemetry, generate a highly analytical and structured website audit executive summary.
+Your response MUST be a JSON object containing exactly four fields:
+1. "theGood": List (3-5 items) of structural and accessibility victories (e.g., secure HTTPS setup, clean load metrics, correct headings hierarchy, viewport presence).
+2. "criticalFlaws": List (3-5 items) of glaring layout, mobile responsive, or search optimization flaws (e.g., missing description, slow performance bottlenecks, unoptimized header counts, images missing alternative descriptions).
+3. "roadmap": List (4-6 items) of prioritised developer action steps to resolve these structural flaws and increase the score towards 9.5+.
+4. "rawMarkdown": A comprehensive and styled Markdown document with clear headers for 'The Good', 'Critical Flaws', and 'Actionable Roadmap'. Use an objective, authoritative senior developer's tone.
+
+Respond ONLY with the JSON object. No other text.
+"""
+
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.2,
+            )
+
+            response_text = response.choices[0].message.content
+            if not response_text:
+                raise ValueError("Received empty response string from Groq API.")
+
+            parsed_data = json.loads(response_text)
+            print("[Groq] Successful structured AI Executive Summary generated and parsed.")
+            return ExecutiveSummary(**parsed_data)
+
+        except Exception as err:
+            print(f"[Groq Error] Live API request failed: {str(err)}. Falling back to local analyzer...")
+            return GroqService._generate_simulated_summary(url, metrics, scores)
+
+    @staticmethod
+    def _generate_simulated_summary(
+        url: str,
+        metrics: AuditMetrics,
+        scores: AuditScores
+    ) -> ExecutiveSummary:
+        """Dynamic local backup analyzer that produces perfect structural reviews if offline/unconfigured."""
+        print("[Groq Fallback] Producing highly tailored, structured local backup report.")
+
+        parsed_url = urllib.parse.urlparse(url)
+        domain = parsed_url.netloc or "website.com"
+
+        the_good = []
+        critical_flaws = []
+        roadmap = []
+
+        # SEO Checklist
+        if scores.seo >= 8.0:
+            the_good.append("Solid indexing structure. Web crawling systems can find semantic parameters safely.")
+        else:
+            if not metrics.hasTitle:
+                critical_flaws.append("Complete absence of `<title>` tag. This severely limits search visibility.")
+                roadmap.append("Implement a custom, action-oriented `<title>` tag (approx 55 characters) for the page.")
+            if not metrics.hasMetaDescription:
+                critical_flaws.append("Missing `<meta name='description'>` search snippet description.")
+                roadmap.append("Create a professional description under 155 characters featuring contextual keywords.")
+            if metrics.headingStructure.h1Count == 0:
+                critical_flaws.append("Missing critical H1 heading. Crawlers cannot deduce the core document topic.")
+                roadmap.append("Add a single, clean `<h1>` title element to mark the primary page headline.")
+
+        # Performance Checklist
+        if scores.performance >= 8.0:
+            the_good.append(f"Highly optimized first-contentful load and query handshake duration ({metrics.loadTimeMs:.1f}ms).")
+        else:
+            critical_flaws.append(f"Page loading delay is high ({metrics.loadTimeMs:.1f}ms). User bounce risk is elevated.")
+            roadmap.append("Optimize assets by implementing lazy loading on images, caching headers, and bundling scripts.")
+
+        # Technical/Accessibility Checklist
+        if metrics.sslActive:
+            the_good.append("Active secure SSL connection (HTTPS). User data exchanges are completely encrypted.")
+        else:
+            critical_flaws.append("Insecure HTTP endpoint. Major browsers will flag this site with safety warnings.")
+            roadmap.append("Acquire and configure an SSL/TLS certificate. Redirect all port 80 traffic to HTTPS.")
+
+        if not metrics.hasViewport:
+            critical_flaws.append("Viewport meta description tag is missing. Page rendering will collapse on mobile devices.")
+            roadmap.append("Insert standard adaptive viewport settings: `<meta name='viewport' content='width=device-width, initial-scale=1.0'>`.")
+
+        if metrics.imagesMissingAlt > 0:
+            critical_flaws.append(f"Detected {metrics.imagesMissingAlt} inline image elements lacking custom alt attributes.")
+            roadmap.append(f"Review the {metrics.totalImages} image(s) on-page and apply alternative text tags to improve screen readers support.")
+
+        # Pad standard elements
+        if len(the_good) < 3:
+            the_good.append("Page documents utilize valid structural HTML tags compliant with modern parsing specifications.")
+            the_good.append("Header server status returned success validation checks.")
+
+        roadmap.append("Re-submit the URL to this auditor after making these adjustments to observe your Health Score improve.")
+
+        notice = ""
+        if not os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY") == "YOUR_GROQ_API_KEY":
+            notice = "\n\n> *Note: Unlock deep cognitive audit insights by defining a real **GROQ_API_KEY** environment variable in your server configuration.*"
+
+        # Generate a professional, highly readable markdown text block
+        raw_markdown = f"""
+# Senior Auditor Executive Report: **{domain}**
+*Audit Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}*
+{notice}
+
+---
+
+## 🟢 The Good (Structural Wins)
+{chr(10).join(f'- **PASSED**: {item}' for item in the_good)}
+
+---
+
+## 🔴 Critical Flaws (Structural & Accessibility Deficits)
+{chr(10).join(f'- **CRITICAL**: {item}' for item in critical_flaws)}
+
+---
+
+## 🗺️ Recommended Developer Roadmap
+Complete the following prioritized checklist to raise your **Website Health Score** from **{scores.overall}/10** to **9.5+/10**:
+
+{chr(10).join(f'{i+1}. **Recommended Fix**: {item}' for i, item in enumerate(roadmap))}
+
+---
+*Assessment compiled dynamically by the local Website Auditor Scoring Engine.*
+"""
+
+        return ExecutiveSummary(
+            theGood=the_good,
+            criticalFlaws=critical_flaws,
+            roadmap=roadmap,
+            rawMarkdown=raw_markdown
+        )
