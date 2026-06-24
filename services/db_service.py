@@ -97,3 +97,17 @@ class DbService:
         except Exception as e:
             print(f"[Database Error] Fails to delete report '{report_id}': {str(e)}")
             return False
+
+    @staticmethod
+    def clear_all_reports() -> bool:
+        """Deletes all audit reports from the database."""
+        DbService._init_db()
+        try:
+            with open(DB_FILE, "w", encoding="utf-8") as f:
+                json.dump([], f, indent=2, ensure_ascii=False)
+            print("[Database] Cleared all reports successfully.")
+            return True
+        except Exception as e:
+            print(f"[Database Error] Fails to clear database: {str(e)}")
+            return False
+

@@ -5,12 +5,18 @@ SPDX-License-Identifier: Apache-2.0
 """
 
 import os
+import io
+import sys
 import json
 import time
 import urllib.parse
 from typing import Optional
 from dotenv import load_dotenv
 from models.audit import AuditMetrics, AuditScores, ExecutiveSummary
+
+# Ensure UTF-8 stdout so emoji log messages don't crash on Windows cp1252
+if hasattr(sys.stdout, 'buffer') and sys.stdout.encoding.lower() != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 # Load .env file into os.environ
 load_dotenv()

@@ -4,15 +4,26 @@
 SPDX-License-Identifier: Apache-2.0
 """
 
+import io
+import os
+import sys
 import time
 import urllib.parse
 import urllib.request
 import urllib.error
 import http.client
 import asyncio
-from typing import Optional
+import concurrent.futures
+from typing import Optional, Tuple, Dict, Any
 from bs4 import BeautifulSoup
 from models.audit import AuditMetrics, HeadingStructure, BrokenLinkDetails, MetaDataAnalysisDetails
+
+SCREENSHOTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "screenshots")
+os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+
+# Ensure UTF-8 stdout so emoji log messages don't crash on Windows cp1252
+if hasattr(sys.stdout, 'buffer') and sys.stdout.encoding.lower() != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 class ScraperService:
     @staticmethod
@@ -83,7 +94,66 @@ class ScraperService:
         return None
 
     @staticmethod
-    async def scrape_url(url: str) -> AuditMetrics:
+    def _playwright_sync_crawl(url: str) -> Dict[str, Any]:
+        """
+        Runs Playwright using the synchronous API inside a worker thread.
+        This avoids the Python 3.14 / uvicorn asyncio.SelectorEventLoop
+        incompatibility where create_subprocess_exec raises NotImplementedError.
+        Returns a dict with html_content, response_code, console_errors, screenshot_filename.
+        """
+        from playwright.sync_api import sync_playwright
+
+        console_errors = []
+        html_content = ""
+        response_code = 200
+        screenshot_filename: Optional[str] = None
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 WebsiteAuditorBot/1.0",
+                viewport={"width": 1280, "height": 720}  # 16:9 viewport
+            )
+            page = context.new_page()
+
+            # Capture console errors
+            page.on("console", lambda msg: console_errors.append(
+                f"[{msg.type.upper()}] Console Log: {msg.text}"
+            ) if msg.type in ["error", "warning"] else None)
+            page.on("pageerror", lambda err: console_errors.append(
+                f"[ERROR] Browser Runtime: {err.message}"
+            ))
+
+            print(f"[Scraper][Stage 1] Navigating to: {url}")
+            response = page.goto(url, timeout=15000, wait_until="load")
+            if response:
+                response_code = response.status
+                print(f"[Scraper][Stage 1] Connection established with status code: {response_code}")
+
+            html_content = page.content()
+
+            # Capture 16:9 viewport screenshot (1280x720)
+            try:
+                fname = f"{int(time.time() * 1000)}_screenshot.png"
+                fpath = os.path.join(SCREENSHOTS_DIR, fname)
+                page.screenshot(path=fpath, full_page=False)
+                screenshot_filename = fname
+                print(f"[Scraper][Stage 1] Screenshot captured (16:9 viewport): {fname}")
+            except Exception as ss_err:
+                print(f"[Scraper Warning] Screenshot capture failed: {ss_err}")
+
+            browser.close()
+            print("[Scraper][Stage 1] Browser process finished and closed.")
+
+        return {
+            "html_content": html_content,
+            "response_code": response_code,
+            "console_errors": console_errors,
+            "screenshot_filename": screenshot_filename,
+        }
+
+    @staticmethod
+    async def scrape_url(url: str) -> Tuple[AuditMetrics, Optional[str]]:
         """
         Scrapes a URL using Playwright browser or falls back to standard HTTP
         fetch if Playwright is unconfigured or fails on target PC.
@@ -96,48 +166,32 @@ class ScraperService:
         response_code = 200
         ssl_active = normalized_url.startswith("https://")
         console_errors = []
+        screenshot_path: Optional[str] = None
 
-        # Attempt Playwright crawl
+        # Attempt Playwright crawl via sync API in a thread
+        # (avoids Python 3.14 asyncio.SelectorEventLoop subprocess NotImplementedError)
         try:
-            from playwright.async_api import async_playwright
-            print("[Scraper][Stage 1] Launching headless browser instance via Playwright...")
-            
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                # Create context with a modern user-agent
-                context = await browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 WebsiteAuditorBot/1.0"
+            print("[Scraper][Stage 1] Launching headless browser instance via Playwright (sync+thread)...")
+            loop = asyncio.get_event_loop()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                result = await loop.run_in_executor(
+                    pool,
+                    ScraperService._playwright_sync_crawl,
+                    normalized_url
                 )
-                page = await context.new_page()
-
-                # Wire up console log listening to capture errors
-                def handle_console(msg):
-                    if msg.type in ["error", "warning"]:
-                        console_errors.append(f"[{msg.type.upper()}] Console Log: {msg.text}")
-                
-                page.on("console", handle_console)
-                page.on("pageerror", lambda err: console_errors.append(f"[ERROR] Browser Runtime: {err.message}"))
-
-                print(f"[Scraper][Stage 1] Navigating to: {normalized_url}")
-                # Set a reasonable 15-second navigation timeout
-                response = await page.goto(normalized_url, timeout=15000, wait_until="load")
-                
-                if response:
-                    response_code = response.status
-                    print(f"[Scraper][Stage 1] Connection established with status code: {response_code}")
-                
-                html_content = await page.content()
-                await browser.close()
-                print("[Scraper][Stage 1] Browser process finished and closed.")
+            html_content = result["html_content"]
+            response_code = result["response_code"]
+            console_errors = result["console_errors"]
+            screenshot_path = result["screenshot_filename"]
 
         except Exception as playwright_error:
             print(f"[Scraper Warning] Playwright crawl failed or is uninstalled: {str(playwright_error)}")
             print("[Scraper] Falling back to standard HTTP library crawl...")
-            
-            # Fallback direct fetch using urllib or standard request simulation
+
+            # Fallback direct fetch using urllib
             try:
                 req = urllib.request.Request(
-                    normalized_url, 
+                    normalized_url,
                     headers={'User-Agent': 'Mozilla/5.0 WebsiteAuditorBot/1.0'}
                 )
                 with urllib.request.urlopen(req, timeout=10) as response:
@@ -146,7 +200,7 @@ class ScraperService:
                     print(f"[Scraper Fallback] Direct fetch successful. Status code: {response_code}")
             except Exception as fallback_error:
                 print(f"[Scraper Error] Standard fallback fetch failed: {str(fallback_error)}")
-                response_code = 0  # 0 represents offline/network connection failure
+                response_code = 0
 
         # Measure elapsed time in MS
         load_time_ms = round((time.time() - start_time) * 1000, 2)
@@ -154,7 +208,7 @@ class ScraperService:
 
         # If we failed to get any HTML content, return fallback structured data
         if not html_content:
-            return ScraperService._generate_fallback_metrics(normalized_url, load_time_ms, ssl_active)
+            return ScraperService._generate_fallback_metrics(normalized_url, load_time_ms, ssl_active), None
 
         # Parse with BeautifulSoup
         print("[Scraper][Stage 2] Parsing DOM structure, checking SEO parameters and layout elements...")
@@ -335,7 +389,7 @@ class ScraperService:
             brokenLinksCount=broken_links_count,
             brokenLinks=broken_links,
             metaDataAnalysis=meta_data_analysis
-        )
+        ), screenshot_path
 
     @staticmethod
     def _generate_fallback_metrics(url: str, load_time_ms: float, ssl_active: bool) -> AuditMetrics:
