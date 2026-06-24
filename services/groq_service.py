@@ -70,11 +70,14 @@ Analyze the following raw technical parameters crawled from auditing the webpage
 
 --- Instructions ---
 Using this parsed technical telemetry, generate a highly analytical and structured website audit executive summary.
+In your analysis, pay special attention to:
+- Page title & metadata quality (length checks, presence of Open Graph/Twitter Card tags).
+- Broken links count, status codes, and descriptions.
 Your response MUST be a JSON object containing exactly four fields:
-1. "theGood": List (3-5 items) of structural and accessibility victories (e.g., secure HTTPS setup, clean load metrics, correct headings hierarchy, viewport presence).
-2. "criticalFlaws": List (3-5 items) of glaring layout, mobile responsive, or search optimization flaws (e.g., missing description, slow performance bottlenecks, unoptimized header counts, images missing alternative descriptions).
-3. "roadmap": List (4-6 items) of prioritised developer action steps to resolve these structural flaws and increase the score towards 9.5+.
-4. "rawMarkdown": A comprehensive and styled Markdown document with clear headers for 'The Good', 'Critical Flaws', and 'Actionable Roadmap'. Use an objective, authoritative senior developer's tone.
+1. "theGood": List (3-5 items) of structural and accessibility victories (e.g., secure HTTPS setup, optimal title/metadata, no broken links, clean load metrics, correct headings hierarchy).
+2. "criticalFlaws": List (3-5 items) of glaring layout, mobile responsive, or search optimization flaws (e.g., missing/suboptimal metadata, broken links with status codes, slow performance bottlenecks, images missing alternative descriptions).
+3. "roadmap": List (4-6 items) of prioritised developer action steps to resolve these structural flaws and increase the score towards 9.5+. Specifically include steps to fix broken links and improve metadata quality.
+4. "rawMarkdown": A comprehensive and styled Markdown document with clear headers for 'The Good', 'Critical Flaws', and 'Actionable Roadmap'. Include details about the page title, metadata status, and any broken links. Use an objective, authoritative senior developer's tone.
 
 Respond ONLY with the JSON object. No other text.
 """
@@ -118,19 +121,48 @@ Respond ONLY with the JSON object. No other text.
         critical_flaws = []
         roadmap = []
 
-        # SEO Checklist
-        if scores.seo >= 8.0:
-            the_good.append("Solid indexing structure. Web crawling systems can find semantic parameters safely.")
+        # Page Title & Meta Data Fallback Checks
+        if metrics.metaDataAnalysis:
+            analysis = metrics.metaDataAnalysis
+            # Title
+            if analysis.titleStatus in ("Too Short", "Too Long", "Missing"):
+                critical_flaws.append(f"Page title issues: Status is {analysis.titleStatus} ({analysis.titleLength} characters).")
+                roadmap.extend(analysis.titleRecommendations)
+            else:
+                the_good.append(f"Page title length is optimal ({analysis.titleLength} characters).")
+            
+            # Meta Description
+            if analysis.metaDescriptionStatus in ("Too Short", "Too Long", "Missing"):
+                critical_flaws.append(f"Meta description issues: Status is {analysis.metaDescriptionStatus} ({analysis.metaDescriptionLength} characters).")
+                roadmap.extend(analysis.metaDescriptionRecommendations)
+            else:
+                the_good.append(f"Meta description length is optimal ({analysis.metaDescriptionLength} characters).")
+
+            # OG & Twitter Card
+            if analysis.openGraphCount == 0:
+                critical_flaws.append("Missing Open Graph metadata tags.")
+                roadmap.append("Add Open Graph meta tags (og:title, og:image, og:description) to improve social share layout.")
+            else:
+                the_good.append(f"Open Graph metadata tags found ({analysis.openGraphCount} tags).")
+
+            if analysis.twitterCardCount == 0:
+                critical_flaws.append("Missing Twitter Card metadata tags.")
+                roadmap.append("Add Twitter Card meta tags to optimize rich snippet preview on Twitter/X.")
+            else:
+                the_good.append(f"Twitter Card metadata tags found ({analysis.twitterCardCount} tags).")
         else:
+            # Fallback legacy checks
             if not metrics.hasTitle:
                 critical_flaws.append("Complete absence of `<title>` tag. This severely limits search visibility.")
                 roadmap.append("Implement a custom, action-oriented `<title>` tag (approx 55 characters) for the page.")
             if not metrics.hasMetaDescription:
                 critical_flaws.append("Missing `<meta name='description'>` search snippet description.")
                 roadmap.append("Create a professional description under 155 characters featuring contextual keywords.")
-            if metrics.headingStructure.h1Count == 0:
-                critical_flaws.append("Missing critical H1 heading. Crawlers cannot deduce the core document topic.")
-                roadmap.append("Add a single, clean `<h1>` title element to mark the primary page headline.")
+
+        # SEO Checklist
+        if metrics.headingStructure.h1Count == 0:
+            critical_flaws.append("Missing critical H1 heading. Crawlers cannot deduce the core document topic.")
+            roadmap.append("Add a single, clean `<h1>` title element to mark the primary page headline.")
 
         # Performance Checklist
         if scores.performance >= 8.0:
@@ -153,6 +185,24 @@ Respond ONLY with the JSON object. No other text.
         if metrics.imagesMissingAlt > 0:
             critical_flaws.append(f"Detected {metrics.imagesMissingAlt} inline image elements lacking custom alt attributes.")
             roadmap.append(f"Review the {metrics.totalImages} image(s) on-page and apply alternative text tags to improve screen readers support.")
+
+        # Broken Links Checklist
+        broken_links_md = ""
+        if metrics.brokenLinksCount > 0:
+            critical_flaws.append(f"Detected {metrics.brokenLinksCount} broken hyperlink(s) pointing to inaccessible destinations.")
+            # Add up to 3 links in the roadmap, list all in the markdown block below
+            for link in metrics.brokenLinks[:3]:
+                roadmap.append(f"Fix broken link: {link.url} (HTTP {link.statusCode}: {link.errorDescription})")
+            if metrics.brokenLinksCount > 3:
+                roadmap.append(f"Fix remaining {metrics.brokenLinksCount - 3} broken hyperlink(s) identified in the audit report.")
+
+            broken_links_list = []
+            for link in metrics.brokenLinks:
+                status = f"Status {link.statusCode}" if link.statusCode > 0 else "Network Error"
+                broken_links_list.append(f"- **URL**: {link.url} | **Error**: {status} ({link.errorDescription})")
+            broken_links_md = "\n## 🔗 Broken Links & Navigation Health\n" + "\n".join(broken_links_list) + "\n"
+        else:
+            the_good.append("All checked hyperlinks on the page are healthy and reachable (no broken links).")
 
         # Pad standard elements
         if len(the_good) < 3:
@@ -180,7 +230,7 @@ Respond ONLY with the JSON object. No other text.
 
 ## 🔴 Critical Flaws (Structural & Accessibility Deficits)
 {chr(10).join(f'- **CRITICAL**: {item}' for item in critical_flaws)}
-
+{broken_links_md}
 ---
 
 ## 🗺️ Recommended Developer Roadmap

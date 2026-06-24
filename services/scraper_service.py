@@ -6,8 +6,13 @@ SPDX-License-Identifier: Apache-2.0
 
 import time
 import urllib.parse
+import urllib.request
+import urllib.error
+import http.client
+import asyncio
+from typing import Optional
 from bs4 import BeautifulSoup
-from models.audit import AuditMetrics, HeadingStructure
+from models.audit import AuditMetrics, HeadingStructure, BrokenLinkDetails, MetaDataAnalysisDetails
 
 class ScraperService:
     @staticmethod
@@ -17,6 +22,65 @@ class ScraperService:
         if not (stripped.startswith("http://") or stripped.startswith("https://")):
             stripped = "https://" + stripped
         return stripped
+
+    @staticmethod
+    async def _check_link(link_url: str) -> Optional[BrokenLinkDetails]:
+        """Asynchronously checks if a link is broken by hitting it."""
+        try:
+            req = urllib.request.Request(
+                link_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 WebsiteAuditorBot/1.0"
+                },
+                method="HEAD"
+            )
+            
+            def perform_request():
+                try:
+                    with urllib.request.urlopen(req, timeout=3.0) as response:
+                        return response.getcode()
+                except urllib.error.HTTPError as e:
+                    return e.code
+                except Exception:
+                    # Fallback to GET if HEAD method fails
+                    try:
+                        get_req = urllib.request.Request(
+                            link_url,
+                            headers={
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 WebsiteAuditorBot/1.0"
+                            },
+                            method="GET"
+                        )
+                        with urllib.request.urlopen(get_req, timeout=3.0) as response:
+                            return response.getcode()
+                    except urllib.error.HTTPError as e_inner:
+                        return e_inner.code
+                    except Exception:
+                        return 0
+
+            status_code = await asyncio.to_thread(perform_request)
+            if status_code >= 400:
+                err_desc = http.client.responses.get(status_code, "Unknown HTTP Error")
+                return BrokenLinkDetails(url=link_url, statusCode=status_code, errorDescription=err_desc)
+            if status_code == 0:
+                return BrokenLinkDetails(url=link_url, statusCode=0, errorDescription="Connection failed during GET fallback")
+        except urllib.error.HTTPError as e:
+            status_code = e.code
+            err_desc = http.client.responses.get(status_code, "HTTP Error")
+            return BrokenLinkDetails(url=link_url, statusCode=status_code, errorDescription=err_desc)
+        except urllib.error.URLError as e:
+            reason_str = str(e.reason)
+            if "getaddrinfo failed" in reason_str:
+                err_desc = "Name or service not known (DNS lookup failed)"
+            elif "timed out" in reason_str:
+                err_desc = "Connection Timed Out"
+            else:
+                err_desc = f"Connection Failed: {reason_str}"
+            return BrokenLinkDetails(url=link_url, statusCode=0, errorDescription=err_desc)
+        except Exception as e:
+            err_desc = str(e)
+            return BrokenLinkDetails(url=link_url, statusCode=0, errorDescription=err_desc)
+        return None
 
     @staticmethod
     async def scrape_url(url: str) -> AuditMetrics:
@@ -71,7 +135,6 @@ class ScraperService:
             print("[Scraper] Falling back to standard HTTP library crawl...")
             
             # Fallback direct fetch using urllib or standard request simulation
-            import urllib.request
             try:
                 req = urllib.request.Request(
                     normalized_url, 
@@ -123,6 +186,100 @@ class ScraperService:
             if alt is None or alt.strip() == "":
                 images_missing_alt += 1
 
+        # --- Page Title & Meta Data Analysis ---
+        title_length = len(meta_title) if has_title else 0
+        title_recs = []
+        if not has_title:
+            title_status = "Missing"
+            title_recs.append("Missing <title> tag. Add a descriptive <title> tag between 30 and 60 characters to improve search engine click-through rates.")
+        elif title_length < 30:
+            title_status = "Too Short"
+            title_recs.append(f"Page title is too short ({title_length} characters). Expand the title to between 30 and 60 characters to include relevant context and keywords.")
+        elif title_length > 60:
+            title_status = "Too Long"
+            title_recs.append(f"Page title is too long ({title_length} characters). Keep it under 60 characters to avoid truncation in search engine result pages.")
+        else:
+            title_status = "Optimal"
+
+        meta_desc_length = len(meta_description) if has_meta_description else 0
+        meta_desc_recs = []
+        if not has_meta_description:
+            meta_desc_status = "Missing"
+            meta_desc_recs.append("Missing <meta name='description'> tag. Create a compelling description between 120 and 160 characters containing targeted keywords.")
+        elif meta_desc_length < 120:
+            meta_desc_status = "Too Short"
+            meta_desc_recs.append(f"Meta description is too short ({meta_desc_length} characters). Expand it to between 120 and 160 characters to provide a better preview of your page content.")
+        elif meta_desc_length > 160:
+            meta_desc_status = "Too Long"
+            meta_desc_recs.append(f"Meta description is too long ({meta_desc_length} characters). Limit it to 160 characters to avoid truncation in search results.")
+        else:
+            meta_desc_status = "Optimal"
+
+        # Count Open Graph & Twitter Card tags
+        og_tags = soup.find_all(lambda tag: tag.name == "meta" and (
+            (tag.get("property") and tag.get("property").startswith("og:")) or
+            (tag.get("name") and tag.get("name").startswith("og:"))
+        ))
+        og_count = len(og_tags)
+
+        twitter_tags = soup.find_all(lambda tag: tag.name == "meta" and (
+            (tag.get("name") and tag.get("name").startswith("twitter:")) or
+            (tag.get("property") and tag.get("property").startswith("twitter:"))
+        ))
+        twitter_count = len(twitter_tags)
+
+        meta_data_analysis = MetaDataAnalysisDetails(
+            titleLength=title_length,
+            titleStatus=title_status,
+            titleRecommendations=title_recs,
+            metaDescriptionLength=meta_desc_length,
+            metaDescriptionStatus=meta_desc_status,
+            metaDescriptionRecommendations=meta_desc_recs,
+            openGraphCount=og_count,
+            twitterCardCount=twitter_count
+        )
+
+        # --- Link Extraction and Verification ---
+        print("[Scraper][Stage 3] Extracting and verifying links to find broken links...")
+        anchors = soup.find_all("a", href=True)
+        candidate_links = []
+        for a in anchors:
+            href = a.get("href", "").strip()
+            if not href:
+                continue
+            # Resolve relative link
+            absolute_url = urllib.parse.urljoin(normalized_url, href)
+            # Parse URL
+            parsed_link = urllib.parse.urlparse(absolute_url)
+            if parsed_link.scheme not in ("http", "https"):
+                continue
+            # Defragment URL
+            defragmented, _ = urllib.parse.urldefrag(absolute_url)
+            candidate_links.append(defragmented)
+
+        # De-duplicate candidate links
+        unique_links = []
+        for l in candidate_links:
+            if l not in unique_links:
+                unique_links.append(l)
+
+        # Prioritize internal links, then external
+        target_domain = urllib.parse.urlparse(normalized_url).netloc
+        internal_links = [l for l in unique_links if urllib.parse.urlparse(l).netloc == target_domain]
+        external_links = [l for l in unique_links if urllib.parse.urlparse(l).netloc != target_domain]
+        prioritized_links = (internal_links + external_links)[:15] # limit to 15 to avoid excessive load
+
+        print(f"[Scraper] Found {len(unique_links)} unique links. Verifying top {len(prioritized_links)} links...")
+        
+        broken_links = []
+        if prioritized_links:
+            tasks = [ScraperService._check_link(link) for link in prioritized_links]
+            link_results = await asyncio.gather(*tasks)
+            broken_links = [r for r in link_results if r is not None]
+
+        broken_links_count = len(broken_links)
+        print(f"[Scraper] Broken links check completed: Found {broken_links_count} broken links.")
+
         # Combine with dynamic analytical feedback logs
         console_errors_simulated = []
         
@@ -141,8 +298,22 @@ class ScraperService:
             console_errors_simulated.append("[Warning] [SEO] Document does not contain any H1 top-level heading tags.")
         elif h1_count > 1:
             console_errors_simulated.append(f"[Warning] [SEO] Multiple H1 tags ({h1_count}) found in document structure. Best practices specify 1.")
+        
+        # Add metadata analysis warnings
+        if title_status in ("Too Short", "Too Long", "Missing"):
+            for rec in title_recs:
+                console_errors_simulated.append(f"[Warning] [SEO] {rec}")
+        if meta_desc_status in ("Too Short", "Too Long", "Missing"):
+            for rec in meta_desc_recs:
+                console_errors_simulated.append(f"[Warning] [SEO] {rec}")
+        if og_count == 0:
+            console_errors_simulated.append("[Warning] [SEO] Missing Open Graph metadata tags for rich social sharing.")
+        if twitter_count == 0:
+            console_errors_simulated.append("[Warning] [SEO] Missing Twitter Card metadata tags for optimized social preview.")
+        if broken_links_count > 0:
+            console_errors_simulated.append(f"[Error] [SEO] Found {broken_links_count} broken hyperlink(s) pointing to inaccessible destinations.")
 
-        print(f"[Scraper] Scraping summary: Title={has_title}, Desc={has_meta_description}, Images={total_images}, AltMissing={images_missing_alt}")
+        print(f"[Scraper] Scraping summary: Title={has_title}, Desc={has_meta_description}, Images={total_images}, AltMissing={images_missing_alt}, BrokenLinks={broken_links_count}")
         
         return AuditMetrics(
             loadTimeMs=load_time_ms,
@@ -160,7 +331,10 @@ class ScraperService:
                 h3Count=h3_count
             ),
             metaTitle=meta_title or None,
-            metaDescription=meta_description or None
+            metaDescription=meta_description or None,
+            brokenLinksCount=broken_links_count,
+            brokenLinks=broken_links,
+            metaDataAnalysis=meta_data_analysis
         )
 
     @staticmethod
@@ -186,6 +360,28 @@ class ScraperService:
 
         domain = urllib.parse.urlparse(url).netloc or "website.com"
 
+        # Mock metadata analysis
+        meta_data_analysis = MetaDataAnalysisDetails(
+            titleLength=len(f"Audited Site: {domain}"),
+            titleStatus="Too Short",
+            titleRecommendations=["Increase title length to at least 30 characters."],
+            metaDescriptionLength=37,
+            metaDescriptionStatus="Too Short",
+            metaDescriptionRecommendations=["Increase meta description length to at least 120 characters."],
+            openGraphCount=0,
+            twitterCardCount=0
+        )
+
+        broken_links = [
+            BrokenLinkDetails(
+                url=f"https://{domain}/broken-link-example",
+                statusCode=404,
+                errorDescription="Not Found"
+            )
+        ]
+
+        console_errors_simulated.append(f"[Error] [SEO] Found 1 broken hyperlink(s) pointing to inaccessible destinations.")
+
         return AuditMetrics(
             loadTimeMs=load_time_ms or 1450.0,
             responseCode=200, # Mock successful response for parsing simulation
@@ -202,5 +398,8 @@ class ScraperService:
                 h3Count=h3_count
             ),
             metaTitle=f"Audited Site: {domain}",
-            metaDescription="Fallback simulation analysis active."
+            metaDescription="Fallback simulation analysis active.",
+            brokenLinksCount=1,
+            brokenLinks=broken_links,
+            metaDataAnalysis=meta_data_analysis
         )

@@ -19,9 +19,20 @@ class ScoringService:
         seo = 10.0
         if not metrics.hasTitle:
             seo -= 1.5
+        elif metrics.metaDataAnalysis and metrics.metaDataAnalysis.titleStatus in ("Too Short", "Too Long"):
+            seo -= 0.5
+
         if not metrics.hasMetaDescription:
             seo -= 1.5
-        
+        elif metrics.metaDataAnalysis and metrics.metaDataAnalysis.metaDescriptionStatus in ("Too Short", "Too Long"):
+            seo -= 0.5
+
+        if metrics.metaDataAnalysis:
+            if metrics.metaDataAnalysis.openGraphCount == 0:
+                seo -= 0.25
+            if metrics.metaDataAnalysis.twitterCardCount == 0:
+                seo -= 0.25
+
         h1 = metrics.headingStructure.h1Count
         if h1 == 0:
             seo -= 1.5
@@ -37,6 +48,10 @@ class ScoringService:
                 seo -= 2.0
             elif missing_ratio > 0:
                 seo -= 1.0
+
+        # Broken links SEO penalty
+        if metrics.brokenLinksCount > 0:
+            seo -= min(2.0, metrics.brokenLinksCount * 0.5)
 
         seo = max(1.0, round(seo, 1))
 
@@ -78,6 +93,10 @@ class ScoringService:
 
         if metrics.responseCode != 200 and metrics.responseCode != 0:
             technical -= 1.5
+
+        # Broken links technical/accessibility penalty
+        if metrics.brokenLinksCount > 0:
+            technical -= min(1.5, metrics.brokenLinksCount * 0.3)
 
         technical = max(1.0, round(technical, 1))
 
