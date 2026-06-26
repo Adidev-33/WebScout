@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 interface AuditReportSummary {
@@ -14,6 +15,7 @@ interface AuditReportSummary {
 }
 
 export default function AuditLogsPage() {
+  const router = useRouter();
   const [reports, setReports] = useState<AuditReportSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,10 +40,7 @@ export default function AuditLogsPage() {
   }, []);
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
-    e.preventDefault(); // Prevent navigating to report details card link
     e.stopPropagation();
-
-    if (!confirm("Are you sure you want to delete this audit report?")) return;
 
     try {
       const res = await fetch(`http://localhost:3000/api/audits/${id}`, {
@@ -60,8 +59,6 @@ export default function AuditLogsPage() {
   };
 
   const handleClearAll = async () => {
-    if (!confirm("Are you sure you want to clear all audit reports? This action cannot be undone and will delete all saved screenshot files.")) return;
-
     try {
       const res = await fetch("http://localhost:3000/api/audits", {
         method: "DELETE",
@@ -76,7 +73,6 @@ export default function AuditLogsPage() {
       alert(err.message || "Error clearing reports.");
     }
   };
-
 
   const getScoreClass = (score: number) => {
     if (score >= 8.0) return "";
@@ -159,10 +155,11 @@ export default function AuditLogsPage() {
       ) : (
         <div className="logs-grid">
           {reports.map((report) => (
-            <Link
+            <div
               key={report.id}
-              href={`/audit/${report.id}`}
               className="log-card"
+              style={{ cursor: "pointer" }}
+              onClick={() => router.push(`/audit/${report.id}`)}
             >
               <div className="log-card-left">
                 <div className={`log-score-badge ${getScoreClass(report.scores?.overall || 0)}`}>
@@ -197,7 +194,7 @@ export default function AuditLogsPage() {
                   </button>
                 </div>
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}
