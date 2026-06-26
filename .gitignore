@@ -82,7 +82,6 @@ pnpm-debug.log*
 .env.test.local
 .env.production.local
 
-# WebScout database and screenshots
 *.json
 screenshots/
-
+html_store/

@@ -25,24 +25,7 @@ load_dotenv()
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
 
-class GroqService:
-    @staticmethod
-    def _get_ai_client():
-        """Attempts to initialize the Groq AsyncGroq client if a valid API key exists."""
-        api_key = os.environ.get("GROQ_API_KEY", "").strip()
-
-        if not api_key or api_key == "YOUR_GROQ_API_KEY" or api_key == "":
-            print("[Groq] GROQ_API_KEY is unset or placeholder. Cascading to local offline executive summary generator.")
-            return None
-
-        try:
-            from groq import AsyncGroq
-            print("[Groq] Initializing AsyncGroq client...")
-            return AsyncGroq(api_key=api_key)
-        except Exception as e:
-            print(f"[Groq Warning] Failed to load groq module: {str(e)}")
-            return None
-
+class AgentService:
     @staticmethod
     async def generate_audit_summary(
         url: str,
@@ -50,66 +33,158 @@ class GroqService:
         scores: AuditScores
     ) -> ExecutiveSummary:
         """
-        Uses Groq LLM to analyze crawled web parameters 
+        Uses LangChain multi-agent orchestration to analyze crawled web parameters 
         and provide a senior-level detailed audit summary, with graceful local fallback.
         """
-        client = GroqService._get_ai_client()
+        api_key = os.environ.get("GROQ_API_KEY", "").strip()
 
-        if client is None:
-            return GroqService._generate_simulated_summary(url, metrics, scores)
+        if not api_key or api_key == "YOUR_GROQ_API_KEY" or api_key == "":
+            print("[Agents] GROQ_API_KEY is unset or placeholder. Cascading to local offline executive summary generator.")
+            return AgentService._generate_simulated_summary(url, metrics, scores)
 
         model = os.environ.get("GROQ_MODEL", DEFAULT_MODEL).strip()
-        print(f"[Groq] 🧠 Calling {model} with technical data for url: {url}")
-
-        system_prompt = (
-            "You are an elite, objective, and realistic website auditor. "
-            "Focus on highly specific code and structure recommendations based on raw telemetry. "
-            "You MUST respond with valid JSON only — no markdown, no commentary outside the JSON object."
-        )
-
-        user_prompt = f"""
-You are an expert Senior Web Auditor, Accessibility Specialist, and SEO Engineer.
-Analyze the following raw technical parameters crawled from auditing the webpage: {url}
-
---- Raw Crawled Web Parameters (JSON) ---
-{json.dumps({"metrics": metrics.model_dump(), "scores": scores.model_dump()}, indent=2)}
-
---- Instructions ---
-Using this parsed technical telemetry, generate a highly analytical and structured website audit executive summary.
-In your analysis, pay special attention to:
-- Page title & metadata quality (length checks, presence of Open Graph/Twitter Card tags).
-- Broken links count, status codes, and descriptions.
-Your response MUST be a JSON object containing exactly four fields:
-1. "theGood": List (3-5 items) of structural and accessibility victories (e.g., secure HTTPS setup, optimal title/metadata, no broken links, clean load metrics, correct headings hierarchy).
-2. "criticalFlaws": List (3-5 items) of glaring layout, mobile responsive, or search optimization flaws (e.g., missing/suboptimal metadata, broken links with status codes, slow performance bottlenecks, images missing alternative descriptions).
-3. "roadmap": List (4-6 items) of prioritised developer action steps to resolve these structural flaws and increase the score towards 9.5+. Specifically include steps to fix broken links and improve metadata quality.
-4. "rawMarkdown": A comprehensive and styled Markdown document with clear headers for 'The Good', 'Critical Flaws', and 'Actionable Roadmap'. Include details about the page title, metadata status, and any broken links. Use an objective, authoritative senior developer's tone.
-
-Respond ONLY with the JSON object. No other text.
-"""
+        print(f"[Agents] 🧠 Commencing multi-agent audit using {model} for url: {url}")
 
         try:
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.2,
+            # Lazy import LangChain components so offline mode doesn't strictly depend on langchain package installation
+            from langchain_groq import ChatGroq
+            from langchain_core.prompts import ChatPromptTemplate
+
+            llm = ChatGroq(
+                groq_api_key=api_key,
+                model_name=model,
+                temperature=0.2
             )
 
-            response_text = response.choices[0].message.content
-            if not response_text:
-                raise ValueError("Received empty response string from Groq API.")
+            # 1. SEO Agent Setup
+            print("[Agents] 🔍 Invoking SEO Specialist Agent...")
+            seo_prompt = ChatPromptTemplate.from_messages([
+                ("system", "You are an expert SEO Specialist Agent. Your job is to analyze the SEO metrics of a website and extract structural wins and critical SEO flaws based on the technical telemetry provided."),
+                ("user", """Analyze the following website crawl SEO parameters:
+URL: {url}
+SEO Score: {seo_score}/10
+Telemetry Data:
+{seo_telemetry}
 
-            parsed_data = json.loads(response_text)
-            print("[Groq] Successful structured AI Executive Summary generated and parsed.")
-            return ExecutiveSummary(**parsed_data)
+Identify:
+1. SEO Wins (e.g., correct title/meta tags, clean load, SSL, etc.)
+2. SEO Flaws (e.g., missing/suboptimal titles, missing meta descriptions, missing viewport, incorrect header tag hierarchy, broken links).
+Respond with a concise bullet-point list of your findings. Keep it technical and realistic.
+""")
+            ])
+            
+            seo_telemetry = json.dumps({
+                "metaTitle": metrics.metaTitle,
+                "metaDescription": metrics.metaDescription,
+                "headingStructure": metrics.headingStructure.model_dump() if metrics.headingStructure else {},
+                "metaDataAnalysis": metrics.metaDataAnalysis.model_dump() if metrics.metaDataAnalysis else {},
+                "hasTitle": metrics.hasTitle,
+                "hasMetaDescription": metrics.hasMetaDescription,
+                "brokenLinksCount": metrics.brokenLinksCount,
+            }, indent=2)
+
+            seo_chain = seo_prompt | llm
+            seo_response = await seo_chain.ainvoke({
+                "url": url,
+                "seo_score": scores.seo,
+                "seo_telemetry": seo_telemetry
+            })
+            seo_report = seo_response.content
+            print("[Agents] ✅ SEO Specialist Agent report completed.")
+
+            # 2. Performance & Security Agent Setup
+            print("[Agents] ⚡ Invoking Performance & Security Specialist Agent...")
+            perf_prompt = ChatPromptTemplate.from_messages([
+                ("system", "You are an expert Web Performance and Security Specialist Agent. Your job is to analyze the performance, accessibility, and security parameters of a website based on the telemetry provided."),
+                ("user", """Analyze the following website crawl performance and security parameters:
+URL: {url}
+Performance Score: {performance_score}/10
+Technical/Accessibility Score: {technical_score}/10
+Telemetry Data:
+{perf_telemetry}
+
+Identify:
+1. Performance & Security Wins (e.g., SSL active, fast load times, correct images with alt attributes)
+2. Performance & Security Flaws (e.g., load time bottlenecks, insecure connections, images missing alt descriptions, console errors)
+Respond with a concise list of bullet-points of your findings. Keep it technical and realistic.
+""")
+            ])
+
+            perf_telemetry = json.dumps({
+                "loadTimeMs": metrics.loadTimeMs,
+                "sslActive": metrics.sslActive,
+                "responseCode": metrics.responseCode,
+                "totalImages": metrics.totalImages,
+                "imagesMissingAlt": metrics.imagesMissingAlt,
+                "hasViewport": metrics.hasViewport,
+                "consoleErrorsSimulated": metrics.consoleErrorsSimulated,
+            }, indent=2)
+
+            perf_chain = perf_prompt | llm
+            perf_response = await perf_chain.ainvoke({
+                "url": url,
+                "performance_score": scores.performance,
+                "technical_score": scores.technical,
+                "perf_telemetry": perf_telemetry
+            })
+            perf_report = perf_response.content
+            print("[Agents] ✅ Performance & Security Specialist Agent report completed.")
+
+            # 3. Lead Coordinator Agent Setup
+            print("[Agents] 👑 Invoking Lead Auditor Coordinator Agent for final synthesis...")
+            
+            coordinator_prompt = ChatPromptTemplate.from_messages([
+                ("system", (
+                    "You are the Lead Website Auditor Coordinator Agent. "
+                    "Your task is to synthesize the reports of the SEO Specialist and the Performance & Security Specialist into a single final website audit report. "
+                    "You must output a structured JSON matching the ExecutiveSummary schema, which contains: "
+                    "1. 'theGood' (List of 3-5 structural wins) "
+                    "2. 'criticalFlaws' (List of 3-5 critical flaws) "
+                    "3. 'roadmap' (List of 4-6 prioritized actionable developer tasks) "
+                    "4. 'rawMarkdown' (A beautifully formatted comprehensive markdown document containing sections: 'The Good', 'Critical Flaws' including details of broken links if any, and 'Actionable Roadmap')."
+                )),
+                ("user", """Synthesize the following specialist agent inputs:
+URL: {url}
+Scores: Overall: {overall_score}/10, SEO: {seo_score}/10, Performance: {perf_score}/10, Technical: {tech_score}/10
+Broken Links (if any): {broken_links}
+
+--- SEO Specialist Report ---
+{seo_report}
+
+--- Performance & Security Specialist Report ---
+{perf_report}
+
+Generate the final ExecutiveSummary output. Make sure the rawMarkdown is well-formatted, clean, professional, and uses a realistic, objective senior developer tone.
+""")
+            ])
+
+            # format broken links description
+            broken_links_list = []
+            for link in metrics.brokenLinks:
+                status = f"Status {link.statusCode}" if link.statusCode > 0 else "Network Error"
+                broken_links_list.append(f"URL: {link.url} | Error: {status} ({link.errorDescription})")
+            broken_links_desc = "\n".join(broken_links_list) if broken_links_list else "None detected"
+
+            structured_llm = llm.with_structured_output(ExecutiveSummary)
+            coordinator_chain = coordinator_prompt | structured_llm
+            
+            final_summary = await coordinator_chain.ainvoke({
+                "url": url,
+                "overall_score": scores.overall,
+                "seo_score": scores.seo,
+                "perf_score": scores.performance,
+                "tech_score": scores.technical,
+                "broken_links": broken_links_desc,
+                "seo_report": seo_report,
+                "perf_report": perf_report
+            })
+
+            print("[Agents] ✅ Multi-agent synthesis completed successfully.")
+            return final_summary
 
         except Exception as err:
-            print(f"[Groq Error] Live API request failed: {str(err)}. Falling back to local analyzer...")
-            return GroqService._generate_simulated_summary(url, metrics, scores)
+            print(f"[Agents Error] Live Agent execution failed: {str(err)}. Falling back to local analyzer...")
+            return AgentService._generate_simulated_summary(url, metrics, scores)
 
     @staticmethod
     def _generate_simulated_summary(
@@ -118,7 +193,7 @@ Respond ONLY with the JSON object. No other text.
         scores: AuditScores
     ) -> ExecutiveSummary:
         """Dynamic local backup analyzer that produces perfect structural reviews if offline/unconfigured."""
-        print("[Groq Fallback] Producing highly tailored, structured local backup report.")
+        print("[Agents Fallback] Producing highly tailored, structured local backup report.")
 
         parsed_url = urllib.parse.urlparse(url)
         domain = parsed_url.netloc or "website.com"
@@ -196,7 +271,6 @@ Respond ONLY with the JSON object. No other text.
         broken_links_md = ""
         if metrics.brokenLinksCount > 0:
             critical_flaws.append(f"Detected {metrics.brokenLinksCount} broken hyperlink(s) pointing to inaccessible destinations.")
-            # Add up to 3 links in the roadmap, list all in the markdown block below
             for link in metrics.brokenLinks[:3]:
                 roadmap.append(f"Fix broken link: {link.url} (HTTP {link.statusCode}: {link.errorDescription})")
             if metrics.brokenLinksCount > 3:
@@ -245,7 +319,7 @@ Complete the following prioritized checklist to raise your **Website Health Scor
 {chr(10).join(f'{i+1}. **Recommended Fix**: {item}' for i, item in enumerate(roadmap))}
 
 ---
-*Assessment compiled dynamically by the local Website Auditor Scoring Engine.*
+*Assessment compiled dynamically by the local Website Auditor Scoring Engine (Fallback).*
 """
 
         return ExecutiveSummary(

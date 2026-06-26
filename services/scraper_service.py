@@ -37,6 +37,9 @@ class ScraperService:
     @staticmethod
     async def _check_link(link_url: str) -> Optional[BrokenLinkDetails]:
         """Asynchronously checks if a link is broken by hitting it."""
+        import ssl
+        ssl_context = ssl._create_unverified_context()
+        
         try:
             req = urllib.request.Request(
                 link_url,
@@ -48,11 +51,11 @@ class ScraperService:
             
             def perform_request():
                 try:
-                    with urllib.request.urlopen(req, timeout=3.0) as response:
+                    with urllib.request.urlopen(req, timeout=10.0, context=ssl_context) as response:
                         return response.getcode()
                 except urllib.error.HTTPError as e:
                     return e.code
-                except Exception:
+                except Exception as ex1:
                     # Fallback to GET if HEAD method fails
                     try:
                         get_req = urllib.request.Request(
@@ -62,17 +65,31 @@ class ScraperService:
                             },
                             method="GET"
                         )
-                        with urllib.request.urlopen(get_req, timeout=3.0) as response:
+                        with urllib.request.urlopen(get_req, timeout=10.0, context=ssl_context) as response:
                             return response.getcode()
                     except urllib.error.HTTPError as e_inner:
                         return e_inner.code
-                    except Exception:
+                    except Exception as ex2:
+                        print(f"[Link Check Warning] Request to {link_url} failed. HEAD error: {ex1}, GET error: {ex2}")
+                        err_str = str(ex2)
+                        if "timed out" in err_str.lower() or "timeout" in err_str.lower():
+                            return -1
+                        elif "ssl" in err_str.lower() or "certificate" in err_str.lower():
+                            return -2
+                        elif "getaddrinfo" in err_str.lower() or "dns" in err_str.lower():
+                            return -3
                         return 0
 
             status_code = await asyncio.to_thread(perform_request)
             if status_code >= 400:
                 err_desc = http.client.responses.get(status_code, "Unknown HTTP Error")
                 return BrokenLinkDetails(url=link_url, statusCode=status_code, errorDescription=err_desc)
+            if status_code == -1:
+                return BrokenLinkDetails(url=link_url, statusCode=0, errorDescription="Connection Timed Out")
+            if status_code == -2:
+                return BrokenLinkDetails(url=link_url, statusCode=0, errorDescription="SSL Certificate Verification Failed")
+            if status_code == -3:
+                return BrokenLinkDetails(url=link_url, statusCode=0, errorDescription="DNS Lookup Failed")
             if status_code == 0:
                 return BrokenLinkDetails(url=link_url, statusCode=0, errorDescription="Connection failed during GET fallback")
         except urllib.error.HTTPError as e:
@@ -94,7 +111,7 @@ class ScraperService:
         return None
 
     @staticmethod
-    def _playwright_sync_crawl(url: str) -> Dict[str, Any]:
+    def _playwright_sync_crawl(url: str, render_js: bool = True, wait_time: int = 5000) -> Dict[str, Any]:
         """
         Runs Playwright using the synchronous API inside a worker thread.
         This avoids the Python 3.14 / uvicorn asyncio.SelectorEventLoop
@@ -124,11 +141,20 @@ class ScraperService:
                 f"[ERROR] Browser Runtime: {err.message}"
             ))
 
-            print(f"[Scraper][Stage 1] Navigating to: {url}")
+            print(f"[Scraper][Stage 1] Navigating to: {url} (JS Render: {render_js}, Wait Time: {wait_time}ms)")
             response = page.goto(url, timeout=15000, wait_until="load")
             if response:
                 response_code = response.status
                 print(f"[Scraper][Stage 1] Connection established with status code: {response_code}")
+
+            if render_js:
+                print(f"[Scraper] Waiting for networkidle state and additional {wait_time}ms delay...")
+                try:
+                    page.wait_for_load_state("networkidle", timeout=15000)
+                except Exception as e:
+                    print(f"[Scraper Warning] networkidle timeout: {e}")
+                if wait_time > 0:
+                    page.wait_for_timeout(wait_time)
 
             html_content = page.content()
 
@@ -153,7 +179,7 @@ class ScraperService:
         }
 
     @staticmethod
-    async def scrape_url(url: str) -> Tuple[AuditMetrics, Optional[str]]:
+    async def scrape_url(url: str, render_js: bool = True, wait_time: int = 5000, audit_id: Optional[str] = None) -> Tuple[AuditMetrics, Optional[str]]:
         """
         Scrapes a URL using Playwright browser or falls back to standard HTTP
         fetch if Playwright is unconfigured or fails on target PC.
@@ -177,7 +203,9 @@ class ScraperService:
                 result = await loop.run_in_executor(
                     pool,
                     ScraperService._playwright_sync_crawl,
-                    normalized_url
+                    normalized_url,
+                    render_js,
+                    wait_time
                 )
             html_content = result["html_content"]
             response_code = result["response_code"]
@@ -209,6 +237,18 @@ class ScraperService:
         # If we failed to get any HTML content, return fallback structured data
         if not html_content:
             return ScraperService._generate_fallback_metrics(normalized_url, load_time_ms, ssl_active), None
+
+        # Save HTML to document store if audit_id is provided
+        if audit_id:
+            try:
+                html_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "html_store")
+                os.makedirs(html_dir, exist_ok=True)
+                html_path = os.path.join(html_dir, f"{audit_id}.html")
+                with open(html_path, "w", encoding="utf-8") as f:
+                    f.write(html_content)
+                print(f"[Scraper] Saved crawled HTML to Document Store at: {html_path}")
+            except Exception as e:
+                print(f"[Scraper Warning] Failed to save HTML to Document Store: {e}")
 
         # Parse with BeautifulSoup
         print("[Scraper][Stage 2] Parsing DOM structure, checking SEO parameters and layout elements...")
@@ -342,7 +382,7 @@ class ScraperService:
             console_errors_simulated.extend(console_errors[:5])  # Cap at first 5 real logs
             
         # Append deterministic warnings
-        if load_time_ms > 1500:
+        if load_time_ms > 3000:
             console_errors_simulated.append(f"[Warning] [Performance] slow server response detected: Page took {load_time_ms}ms to load completely.")
         if images_missing_alt > 0:
             console_errors_simulated.append(f"[Error] [Accessibility] Found {images_missing_alt} page image(s) missing an [alt] description tag.")
@@ -457,3 +497,124 @@ class ScraperService:
             brokenLinks=broken_links,
             metaDataAnalysis=meta_data_analysis
         )
+
+    @staticmethod
+    async def trace_redirects_for_url(url: str, max_redirects: int = 10) -> Dict[str, Any]:
+        """Traces redirects step-by-step for a single URL without auto-following."""
+        normalized_url = ScraperService.normalize_url(url)
+        print(f"[Redirects] Tracing redirects for input URL: {normalized_url}")
+        
+        chain = []
+        current_url = normalized_url
+        has_loop = False
+        status = "success"
+        error_msg = None
+        
+        visited = {current_url}
+        
+        class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+                return None
+
+        opener = urllib.request.build_opener(NoRedirectHandler)
+        opener.addheaders = [("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 WebsiteAuditorBot/1.0")]
+        
+        for i in range(max_redirects + 1):
+            try:
+                def run_req():
+                    req = urllib.request.Request(current_url, method="GET")
+                    try:
+                        return opener.open(req, timeout=5.0)
+                    except urllib.error.HTTPError as e:
+                        return e
+                    except Exception as ex:
+                        return ex
+                
+                response = await asyncio.to_thread(run_req)
+                
+                if isinstance(response, Exception) and not isinstance(response, urllib.error.HTTPError):
+                    raise response
+                    
+                if isinstance(response, urllib.error.HTTPError):
+                    status_code = response.code
+                    headers = response.headers
+                else:
+                    status_code = response.getcode()
+                    headers = response.headers
+                    
+                redirect_type = "Destination"
+                if status_code in (301, 302, 303, 307, 308):
+                    if status_code in (301, 308):
+                        redirect_type = "Permanent"
+                    else:
+                        redirect_type = "Temporary"
+                elif status_code >= 400:
+                    redirect_type = "Error"
+                    
+                error_desc = None
+                if redirect_type == "Error":
+                    error_desc = http.client.responses.get(status_code, "HTTP Error")
+                    
+                chain.append({
+                    "url": current_url,
+                    "statusCode": status_code,
+                    "redirectType": redirect_type,
+                    "errorDescription": error_desc
+                })
+                
+                if redirect_type in ("Permanent", "Temporary"):
+                    next_url = headers.get('Location')
+                    if not next_url:
+                        chain[-1]["redirectType"] = "Error"
+                        chain[-1]["errorDescription"] = "Redirect status code but missing Location header"
+                        status = "error"
+                        break
+                    
+                    next_url = urllib.parse.urljoin(current_url, next_url)
+                    
+                    if next_url in visited:
+                        has_loop = True
+                        status = "loop"
+                        chain.append({
+                            "url": next_url,
+                            "statusCode": 0,
+                            "redirectType": "Loop",
+                            "errorDescription": "Circular redirect detected"
+                        })
+                        break
+                    
+                    visited.add(next_url)
+                    current_url = next_url
+                else:
+                    break
+                    
+            except Exception as e:
+                err_str = str(e)
+                chain.append({
+                    "url": current_url,
+                    "statusCode": 0,
+                    "redirectType": "Error",
+                    "errorDescription": f"Connection Error: {err_str}"
+                })
+                status = "error"
+                error_msg = err_str
+                break
+                
+        if len(chain) > max_redirects and not has_loop and chain[-1]["redirectType"] in ("Permanent", "Temporary"):
+            status = "error"
+            error_msg = f"Exceeded maximum limit of {max_redirects} redirects"
+            chain.append({
+                "url": current_url,
+                "statusCode": 0,
+                "redirectType": "Error",
+                "errorDescription": error_msg
+            })
+            
+        return {
+            "inputUrl": normalized_url,
+            "chain": chain,
+            "finalUrl": chain[-1]["url"] if chain else normalized_url,
+            "hasLoop": has_loop,
+            "status": status,
+            "error": error_msg
+        }

@@ -56,6 +56,12 @@ class ExecutiveSummary(BaseModel):
     roadmap: List[str] = Field(default_factory=list, description="Step-by-step developer recommendations")
     rawMarkdown: str = Field(..., description="A complete, beautiful markdown formatted audit overview")
 
+class RedirectStep(BaseModel):
+    url: str
+    statusCode: int
+    redirectType: str
+    errorDescription: Optional[str] = None
+
 class AuditReport(BaseModel):
     id: str
     url: str
@@ -67,3 +73,51 @@ class AuditReport(BaseModel):
     metrics: Optional[AuditMetrics] = None
     summary: Optional[ExecutiveSummary] = None
     screenshotPath: Optional[str] = Field(default=None, description="Relative path to the captured full-page screenshot PNG")
+    redirectChain: List[RedirectStep] = Field(default_factory=list)
+    previousAuditId: Optional[str] = Field(default=None, description="ID of the previous audit of the same website")
+
+class RedirectAuditResult(BaseModel):
+    inputUrl: str
+    chain: List[RedirectStep]
+    finalUrl: Optional[str] = None
+    hasLoop: bool
+    status: str
+    error: Optional[str] = None
+
+class RedirectBatchResponse(BaseModel):
+    results: List[RedirectAuditResult]
+
+class ScoreDelta(BaseModel):
+    overall: float
+    seo: float
+    performance: float
+    technical: float
+
+class MetricDelta(BaseModel):
+    loadTimeMs: float
+    totalImages: int
+    imagesMissingAlt: int
+    brokenLinksCount: int
+
+class ChangeItem(BaseModel):
+    item: str
+    status: str
+    description: str
+
+class AuditComparisonResponse(BaseModel):
+    auditA: AuditReport
+    auditB: AuditReport
+    scoreDelta: ScoreDelta
+    metricDelta: MetricDelta
+    changes: List[ChangeItem]
+
+class MappedPathPair(BaseModel):
+    path: str
+    auditA: Optional[AuditReport] = None
+    auditB: Optional[AuditReport] = None
+    scoreDelta: Optional[float] = None
+
+class URLMappingResponse(BaseModel):
+    prefixA: str
+    prefixB: str
+    pairs: List[MappedPathPair]

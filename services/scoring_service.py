@@ -59,22 +59,24 @@ class ScoringService:
         performance = 10.0
         load_time = metrics.loadTimeMs
 
-        if load_time <= 300:
-            pass  # Perfect render speed
-        elif load_time <= 800:
+        if load_time <= 1000:
+            pass  # Fast render speed
+        elif load_time <= 2500:
             performance -= 0.5
-        elif load_time <= 1500:
-            performance -= 1.5
-        elif load_time <= 3000:
+        elif load_time <= 5000:
+            performance -= 1.0
+        elif load_time <= 10000:
+            performance -= 2.0
+        elif load_time <= 20000:
             performance -= 3.0
         else:
-            performance -= 5.0
+            performance -= 4.0
 
-        # Unoptimized images density penalty
-        if metrics.totalImages > 30:
-            performance -= 1.5
-        elif metrics.totalImages > 15:
-            performance -= 0.8
+        # Unoptimized images density penalty (more relaxed thresholds)
+        if metrics.totalImages > 100:
+            performance -= 0.5
+        elif metrics.totalImages > 50:
+            performance -= 0.2
 
         performance = max(1.0, round(performance, 1))
 
