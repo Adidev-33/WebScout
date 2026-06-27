@@ -46,7 +46,8 @@ app = FastAPI(
 )
 
 # Serve captured screenshots as static files
-SCREENSHOTS_DIR = os.path.join(os.path.dirname(__file__), "screenshots")
+DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(os.path.abspath(__file__)))
+SCREENSHOTS_DIR = os.path.join(DATA_DIR, "screenshots")
 os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
 app.mount("/screenshots", StaticFiles(directory=SCREENSHOTS_DIR), name="screenshots")
 
@@ -285,7 +286,7 @@ async def delete_audit(audit_id: str):
             
     # Clean up crawled HTML file
     try:
-        html_store_dir = os.path.join(os.path.dirname(__file__), "html_store")
+        html_store_dir = os.path.join(DATA_DIR, "html_store")
         html_path = os.path.join(html_store_dir, f"{audit_id}.html")
         if os.path.exists(html_path):
             os.remove(html_path)
@@ -313,7 +314,7 @@ async def delete_all_audits():
         print(f"[API Error] Fails to delete screenshots: {str(e)}")
 
     try:
-        html_store_dir = os.path.join(os.path.dirname(__file__), "html_store")
+        html_store_dir = os.path.join(DATA_DIR, "html_store")
         if os.path.exists(html_store_dir):
             for filename in os.listdir(html_store_dir):
                 file_path = os.path.join(html_store_dir, filename)
@@ -654,4 +655,6 @@ async def chat_with_audit_report(audit_id: str, payload: dict = Body(...)):
 # Entrypoint for direct execution (e.g. `python backend/main.py`)
 if __name__ == "__main__":
     print("Initializing Website Auditor FastAPI Backend...")
-    uvicorn.run("main:app", host="0.0.0.0", port=3000, reload=True)
+    port = int(os.environ.get("PORT", 3000))
+    reload = os.environ.get("ENV", "development").lower() == "development"
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=reload)

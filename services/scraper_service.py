@@ -18,7 +18,8 @@ from typing import Optional, Tuple, Dict, Any
 from bs4 import BeautifulSoup
 from models.audit import AuditMetrics, HeadingStructure, BrokenLinkDetails, MetaDataAnalysisDetails
 
-SCREENSHOTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "screenshots")
+DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SCREENSHOTS_DIR = os.path.join(DATA_DIR, "screenshots")
 os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
 
 # Ensure UTF-8 stdout so emoji log messages don't crash on Windows cp1252
@@ -241,7 +242,7 @@ class ScraperService:
         # Save HTML to document store if audit_id is provided
         if audit_id:
             try:
-                html_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "html_store")
+                html_dir = os.path.join(DATA_DIR, "html_store")
                 os.makedirs(html_dir, exist_ok=True)
                 html_path = os.path.join(html_dir, f"{audit_id}.html")
                 with open(html_path, "w", encoding="utf-8") as f:

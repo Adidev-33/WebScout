@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, use } from "react";
 import Link from "next/link";
+import { API_BASE_URL } from "@/lib/config";
 
 interface BrokenLinkDetails {
   url: string;
@@ -411,7 +412,7 @@ export default function AuditReportDashboard({ params }: { params: Promise<{ id:
         text: msg.text
       }));
 
-      const res = await fetch(`http://localhost:3000/api/audits/${id}/chat`, {
+      const res = await fetch(`${API_BASE_URL}/api/audits/${id}/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -448,7 +449,7 @@ export default function AuditReportDashboard({ params }: { params: Promise<{ id:
   useEffect(() => {
     const fetchReport = async () => {
       try {
-        const res = await fetch(`http://localhost:3000/api/audits/${id}`);
+        const res = await fetch(`${API_BASE_URL}/api/audits/${id}`);
         if (!res.ok) {
           throw new Error("Audit report not found on server.");
         }
@@ -458,7 +459,7 @@ export default function AuditReportDashboard({ params }: { params: Promise<{ id:
         // Fetch comparison if consecutive audit exists
         if (data.previousAuditId) {
           try {
-            const compRes = await fetch(`http://localhost:3000/api/compare/${data.previousAuditId}/${data.id}`);
+            const compRes = await fetch(`${API_BASE_URL}/api/compare/${data.previousAuditId}/${data.id}`);
             if (compRes.ok) {
               const compData = await compRes.json();
               setComparison(compData);
@@ -697,7 +698,7 @@ export default function AuditReportDashboard({ params }: { params: Promise<{ id:
               {report.screenshotPath ? (
                 <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", overflow: "hidden" }}>
                   <img
-                    src={`http://localhost:3000/screenshots/${report.screenshotPath}`}
+                    src={`${API_BASE_URL}/screenshots/${report.screenshotPath}`}
                     alt={`Screenshot of ${report.url}`}
                     style={{
                       width: "100%",

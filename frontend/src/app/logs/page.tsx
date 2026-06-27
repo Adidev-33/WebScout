@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { API_BASE_URL } from "@/lib/config";
 
 interface AuditReportSummary {
   id: string;
@@ -22,7 +23,7 @@ export default function AuditLogsPage() {
 
   const fetchReports = async () => {
     try {
-      const res = await fetch("http://localhost:3000/api/audits");
+      const res = await fetch(`${API_BASE_URL}/api/audits`);
       if (!res.ok) {
         throw new Error("Failed to load audit history from server.");
       }
@@ -43,7 +44,7 @@ export default function AuditLogsPage() {
     e.stopPropagation();
 
     try {
-      const res = await fetch(`http://localhost:3000/api/audits/${id}`, {
+      const res = await fetch(`${API_BASE_URL}/api/audits/${id}`, {
         method: "DELETE",
       });
 
@@ -60,7 +61,7 @@ export default function AuditLogsPage() {
 
   const handleClearAll = async () => {
     try {
-      const res = await fetch("http://localhost:3000/api/audits", {
+      const res = await fetch(`${API_BASE_URL}/api/audits`, {
         method: "DELETE",
       });
 

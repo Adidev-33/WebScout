@@ -10,6 +10,8 @@ import re
 import math
 from typing import List, Dict, Any, Optional
 
+DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 class RagService:
     @staticmethod
     def _tokenize(text: str) -> List[str]:
@@ -286,7 +288,7 @@ class RagService:
         audit logs into chunks, and returns the top k relevant chunks matching the query.
         """
         html_content = ""
-        html_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "html_store")
+        html_dir = os.path.join(DATA_DIR, "html_store")
         html_path = os.path.join(html_dir, f"{audit_id}.html")
         if os.path.exists(html_path):
             try:

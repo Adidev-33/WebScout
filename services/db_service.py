@@ -9,7 +9,8 @@ import json
 from typing import List, Optional
 from models.audit import AuditReport
 
-DB_FILE = os.path.join(os.getcwd(), "audits_db.json")
+DATA_DIR = os.environ.get("DATA_DIR", os.getcwd())
+DB_FILE = os.path.join(DATA_DIR, "audits_db.json")
 
 class DbService:
     @staticmethod

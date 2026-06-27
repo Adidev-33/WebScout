@@ -2,6 +2,7 @@
 
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
+import { API_BASE_URL } from "@/lib/config";
 
 interface AuditScores {
   overall: number;
@@ -77,7 +78,7 @@ export default function CompareAuditsDashboard({ params }: { params: Promise<{ i
   useEffect(() => {
     const fetchComparison = async () => {
       try {
-        const res = await fetch(`http://localhost:3000/api/compare/${id_a}/${id_b}`);
+        const res = await fetch(`${API_BASE_URL}/api/compare/${id_a}/${id_b}`);
         if (!res.ok) {
           throw new Error("One or both audit reports could not be loaded for comparison.");
         }
