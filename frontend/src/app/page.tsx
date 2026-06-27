@@ -234,7 +234,7 @@ export default function LandingPage() {
                 <input
                   type="text"
                   className="search-input"
-                  placeholder="Enter website URL to audit (e.g., https://example.com)"
+                  placeholder="Enter website URL"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                   required

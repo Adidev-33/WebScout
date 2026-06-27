@@ -1,0 +1,52 @@
+[
+  {
+    "title": "Page Title Tag Optimization",
+    "category": "SEO",
+    "content": "The title tag is one of the most important on-page SEO signals. Google recommends page titles between 30 and 60 characters (or around 600 pixels wide) to prevent truncation in search result pages. Titles should be descriptive, include primary keywords, and be unique to each page. Missing title tags or titles that are too short (under 30 characters) limit the context search bots have about your content."
+  },
+  {
+    "title": "Meta Description Tag Optimization",
+    "category": "SEO",
+    "content": "Meta descriptions provide a summary of the webpage in search result listings. Although not a direct ranking signal, they strongly impact organic click-through rate (CTR). Google recommends meta descriptions between 120 and 160 characters. Descriptions under 120 characters are considered too short and fail to capture user attention, while descriptions over 160 characters get truncated. Ensure it is written in an active, compelling voice and contains targeted keywords."
+  },
+  {
+    "title": "Responsive Mobile Viewport Declaration",
+    "category": "Technical",
+    "content": "A mobile viewport tag (<meta name='viewport' content='width=device-width, initial-scale=1'>) is mandatory for modern responsive web design. Without it, mobile browsers render the desktop-wide layout and scale it down, making text microscopic and forcing users to pinch-and-zoom. Google utilizes mobile-first indexing, meaning mobile-friendliness is a core ranking factor. Missing viewport tags will trigger severe mobile usability errors."
+  },
+  {
+    "title": "Heading Hierarchy and H1 Structure",
+    "category": "SEO",
+    "content": "Heading tags (H1-H6) outline the semantic structure of a webpage. Best practices dictate exactly one H1 tag per page, representing the primary topic of the document. Having zero H1 tags or multiple H1 tags makes it harder for search crawlers and screen readers to discern the primary focal point of the page. H2 and H3 tags should follow in nested order to organize subsections logically."
+  },
+  {
+    "title": "Image Accessibility Alt Text",
+    "category": "Accessibility",
+    "content": "Every image element must have an alt attribute (<img alt='description'>). Alt attributes are read by screen readers for visually impaired users, making your site accessible. They are also read by search engine crawler bots to index images in search results. Missing alt text triggers accessibility compliance violations and reduces image search rankings. Alt descriptions should be concise, accurate, and describe the actual context of the visual graphic."
+  },
+  {
+    "title": "SSL Security and HTTPS Protocol",
+    "category": "Security",
+    "content": "HTTPS (SSL certification) is a mandatory ranking signal and standard for web security. It encrypts all client-server communication, protecting sensitive user data. Non-SSL sites (HTTP) are marked as 'Not Secure' in major browsers, causing high bounce rates and hurting domain trust scores. Ensure all subdomains and resource URLs also load over HTTPS to prevent mixed-content warnings."
+  },
+  {
+    "title": "Resolving Broken Hyperlinks",
+    "category": "SEO",
+    "content": "Broken links (returning HTTP status codes like 404 or connection failures) harm user navigation and search engine crawling. Crawlers have a limited 'crawl budget' and wasting it on dead links prevents them from discovering your site's valuable content. High numbers of broken links indicate a neglected website, dragging down overall search visibility. Regularly scan anchors and replace or redirect dead destinations to active relevant pages."
+  },
+  {
+    "title": "Optimizing Page Load Speed and Latency",
+    "category": "Performance",
+    "content": "Page speed is a primary user experience and Core Web Vitals ranking factor (LCP/TTFB). Slow response times (above 1.5 seconds) increase bounce rate and degrade conversion rates. To optimize latency: compress large image files, implement lazy-loading, eliminate render-blocking CSS/JavaScript, leverage browser caching headers, and utilize a Content Delivery Network (CDN) to serve static assets closer to users."
+  },
+  {
+    "title": "Open Graph (OG) and Twitter Card Tags",
+    "category": "SEO",
+    "content": "Open Graph (og:title, og:image, og:description) and Twitter Card tags allow you to control how your webpage links look when shared on social networks. Correct social tags ensure your brand displays rich snippets, high-quality images, and appropriate summaries instead of generic fallback text. This greatly increases engagement, click-through rates, and brand credibility across digital channels."
+  },
+  {
+    "title": "Browser Console Warning Logs and Runtime Errors",
+    "category": "Technical",
+    "content": "Browser console warnings and runtime JavaScript exceptions indicate stability and scripting problems. Heavy script execution, script errors, or failed assets can block page rendering, crash user browser tabs, or prevent users from clicking buttons. Clean up console exceptions by debugging failing libraries, ensuring scripts wait for DOM load, and addressing mixed-content warnings."
+  }
+]
